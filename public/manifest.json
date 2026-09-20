@@ -1,0 +1,18 @@
+{
+  "name": "CircuScan - E-Waste & Circular Electronics Triage",
+  "short_name": "CircuScan",
+  "description": "Mobile PWA for circular gadget evaluation, 4R scoring, and verified e-waste disposal in India.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B1315",
+  "theme_color": "#10B981",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
