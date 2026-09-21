@@ -223,7 +223,8 @@ export default function Home() {
     const tradeLinks = generateTradeInLinks(specs.brand, specs.model);
     const tradeChannels = generateTradeInChannels(specs.brand, specs.model, resale);
     const brandService = getBrandServiceCenterInfo(specs.brand, specs.model);
-    const facilities = await getNearbyFacilitiesByPincode('600001');
+    const userPin = typeof window !== 'undefined' ? (localStorage.getItem('circuscan_user_pincode') || '600001') : '600001';
+    const facilities = await getNearbyFacilitiesByPincode(userPin);
     const impact = computeEnvironmentalImpact(specs.category, residual.action);
 
     return {

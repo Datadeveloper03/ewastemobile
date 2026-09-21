@@ -11,10 +11,12 @@ import {
   Layers, 
   ExternalLink,
   Store,
-  Sparkles
+  Sparkles,
+  Compass,
+  CheckCircle2
 } from 'lucide-react';
 import { NearbyFacility } from '@/types/circuscan';
-import { getNearbyFacilitiesByPincode } from '@/lib/locations';
+import { lookupFacilitiesByPincode, lookupFacilitiesByCoordinates } from '@/lib/locations';
 
 interface FacilityLocatorProps {
   initialFacilities?: NearbyFacility[];
@@ -22,35 +24,88 @@ interface FacilityLocatorProps {
 
 export default function FacilityLocator({ initialFacilities }: FacilityLocatorProps) {
   const [pincode, setPincode] = useState('600001');
+  const [regionLabel, setRegionLabel] = useState('Chennai, Tamil Nadu');
   const [facilities, setFacilities] = useState<NearbyFacility[]>(initialFacilities || []);
   const [loading, setLoading] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<'All' | 'Collection_Bin' | 'Repair' | 'Recycler'>('All');
   const [activeFacility, setActiveFacility] = useState<NearbyFacility | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: 13.0827, lng: 80.2707 });
 
   const fetchFacilities = async (code: string) => {
+    if (!code || code.trim().length < 3) return;
     setLoading(true);
     try {
-      const results = await getNearbyFacilitiesByPincode(code);
-      setFacilities(results);
-      if (results.length > 0) {
-        setActiveFacility(results[0]);
+      const result = await lookupFacilitiesByPincode(code);
+      setFacilities(result.facilities);
+      setRegionLabel(result.regionName);
+      setMapCenter(result.center);
+      if (result.facilities.length > 0) {
+        setActiveFacility(result.facilities[0]);
+      } else {
+        setActiveFacility(null);
+      }
+      if (code.length === 6) {
+        try {
+          localStorage.setItem('circuscan_user_pincode', code);
+        } catch {}
       }
     } catch (e) {
-      console.error(e);
+      console.error('Failed to lookup facilities for pincode:', e);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (!initialFacilities || initialFacilities.length === 0) {
-      fetchFacilities(pincode);
-    } else {
-      setActiveFacility(initialFacilities[0]);
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
     }
+
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const result = await lookupFacilitiesByCoordinates(latitude, longitude);
+          setFacilities(result.facilities);
+          setRegionLabel(result.regionName);
+          setMapCenter(result.center);
+          if (result.pincode && result.pincode !== 'GPS') {
+            setPincode(result.pincode);
+            try {
+              localStorage.setItem('circuscan_user_pincode', result.pincode);
+            } catch {}
+          }
+          if (result.facilities.length > 0) {
+            setActiveFacility(result.facilities[0]);
+          }
+        } catch (err) {
+          console.error('Error reverse geocoding current location:', err);
+        } finally {
+          setGpsLoading(false);
+        }
+      },
+      (err) => {
+        console.warn('Geolocation denied or unavailable:', err.message);
+        setGpsLoading(false);
+        alert('Could not obtain your location. Please enter your 6-digit Pincode.');
+      },
+      { timeout: 8000 }
+    );
+  };
+
+  useEffect(() => {
+    let savedPin = '600001';
+    try {
+      savedPin = localStorage.getItem('circuscan_user_pincode') || '600001';
+    } catch {}
+    setPincode(savedPin);
+    fetchFacilities(savedPin);
   }, []);
 
-  const handleQuickCity = (code: string) => {
+  const handleQuickCity = (code: string, city: string) => {
     setPincode(code);
     fetchFacilities(code);
   };
@@ -60,14 +115,12 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
     return f.type === selectedFilter;
   });
 
-  const currentMapCenter = activeFacility 
+  const currentCenter = activeFacility 
     ? { lat: activeFacility.lat, lng: activeFacility.lng } 
-    : facilities.length > 0 
-      ? { lat: facilities[0].lat, lng: facilities[0].lng } 
-      : { lat: 13.0827, lng: 80.2707 };
+    : mapCenter;
 
-  // OpenStreetMap embed URL with dynamic marker
-  const mapEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${currentMapCenter.lng - 0.04}%2C${currentMapCenter.lat - 0.03}%2C${currentMapCenter.lng + 0.04}%2C${currentMapCenter.lat + 0.03}&layer=mapnik&marker=${currentMapCenter.lat}%2C${currentMapCenter.lng}`;
+  // OpenStreetMap embed URL dynamically focused on the selected pincode / facility
+  const mapEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${currentCenter.lng - 0.045}%2C${currentCenter.lat - 0.035}%2C${currentCenter.lng + 0.045}%2C${currentCenter.lat + 0.035}&layer=mapnik&marker=${currentCenter.lat}%2C${currentCenter.lng}`;
 
   const getFacilityTypeBadge = (type: NearbyFacility['type']) => {
     switch (type) {
@@ -106,43 +159,74 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
           </p>
         </div>
 
-        {/* Pincode Search Bar */}
-        <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            maxLength={6}
-            placeholder="Pincode"
-            value={pincode}
-            onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))}
-            onKeyDown={(e) => e.key === 'Enter' && pincode.length >= 3 && fetchFacilities(pincode)}
-            className="w-28 px-3.5 py-2 text-xs font-mono font-bold bg-slate-950/60 border border-cyan-500/40 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 backdrop-blur-md"
-          />
+        {/* Pincode Search Bar & GPS Button */}
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
-            onClick={() => fetchFacilities(pincode)}
-            disabled={loading || pincode.length < 3}
-            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white transition flex items-center justify-center font-bold text-xs shadow-md shadow-cyan-950/50"
-            title="Locate Centers"
+            onClick={handleUseCurrentLocation}
+            disabled={gpsLoading}
+            className="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-cyan-500/40 text-cyan-300 hover:text-white transition flex items-center gap-1 text-xs font-medium active:scale-95 shadow-sm"
+            title="Locate via GPS Current Location"
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            {gpsLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+            ) : (
+              <Compass className="w-4 h-4 text-cyan-400" />
+            )}
+            <span className="hidden xs:inline">Near Me</span>
           </button>
+
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              maxLength={6}
+              placeholder="Enter Pincode"
+              value={pincode}
+              onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={(e) => e.key === 'Enter' && pincode.length >= 3 && fetchFacilities(pincode)}
+              className="w-28 sm:w-32 px-3 py-2 text-xs font-mono font-bold bg-slate-950/60 border border-cyan-500/40 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 backdrop-blur-md"
+            />
+            <button
+              onClick={() => fetchFacilities(pincode)}
+              disabled={loading || pincode.length < 3}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white transition flex items-center justify-center font-bold text-xs shadow-md shadow-cyan-950/50 active:scale-95"
+              title="Search Pincode"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* Active Region Indicator */}
+      <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/25 flex items-center justify-between gap-2 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+          <span className="text-slate-300">
+            Showing centers near: <strong className="text-cyan-300">{regionLabel}</strong>
+          </span>
+        </div>
+        <span className="font-mono text-[11px] text-cyan-400 px-2 py-0.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+          PIN: {pincode}
+        </span>
       </div>
 
       {/* Quick City Buttons */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[11px] text-cyan-200/80 font-bold">Quick Cities:</span>
+        <span className="text-[11px] text-cyan-200/80 font-bold">Quick Regions:</span>
         {[
           { city: 'Chennai', pin: '600001' },
           { city: 'Bengaluru', pin: '560001' },
           { city: 'Mumbai', pin: '400001' },
           { city: 'Delhi NCR', pin: '110001' },
           { city: 'Hyderabad', pin: '500001' },
-          { city: 'Kolkata', pin: '700001' }
+          { city: 'Kolkata', pin: '700001' },
+          { city: 'Coimbatore', pin: '641001' },
+          { city: 'Pune', pin: '411001' }
         ].map((c) => (
           <button
             key={c.pin}
-            onClick={() => handleQuickCity(c.pin)}
-            className={`text-[11px] px-3 py-1 rounded-xl border transition font-medium backdrop-blur-md ${
+            onClick={() => handleQuickCity(c.pin, c.city)}
+            className={`text-[11px] px-2.5 py-1 rounded-xl border transition font-medium backdrop-blur-md ${
               pincode === c.pin
                 ? 'bg-cyan-500/30 border-cyan-400 text-cyan-100 font-bold shadow-sm'
                 : 'bg-slate-900/60 border-slate-700/60 text-slate-300 hover:text-white hover:border-cyan-500/40'
@@ -156,8 +240,9 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
       {/* ========================================================================= */}
       {/* INTERACTIVE VISUAL MAP EMBED                                              */}
       {/* ========================================================================= */}
-      <div className="relative w-full h-52 sm:h-64 rounded-2xl overflow-hidden border border-cyan-500/30 shadow-lg bg-slate-950/80">
+      <div className="relative w-full h-56 sm:h-64 rounded-2xl overflow-hidden border border-cyan-500/30 shadow-lg bg-slate-950/80">
         <iframe
+          key={`${currentCenter.lat}-${currentCenter.lng}`}
           title="Facility Location Map"
           src={mapEmbedUrl}
           className="w-full h-full border-0 filter contrast-[1.05] brightness-90"
@@ -166,9 +251,9 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
 
         {/* Map Header Floating Overlay */}
         <div className="absolute top-2 left-2 right-2 flex items-center justify-between pointer-events-none">
-          <div className="px-3 py-1 rounded-xl bg-slate-950/80 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-bold backdrop-blur-md flex items-center gap-1.5 shadow-md">
+          <div className="px-3 py-1 rounded-xl bg-slate-950/85 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-bold backdrop-blur-md flex items-center gap-1.5 shadow-md">
             <Layers className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Interactive Drop-Off Map • Pincode {pincode}</span>
+            <span>Interactive Map • {regionLabel.split(',')[0]}</span>
           </div>
 
           {activeFacility && (
@@ -178,7 +263,7 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
               rel="noopener noreferrer"
               className="pointer-events-auto px-3 py-1 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-black text-[11px] flex items-center gap-1 shadow-md transition active:scale-95"
             >
-              <span>Directions</span>
+              <span>Google Maps</span>
               <Navigation className="w-3 h-3" />
             </a>
           )}
@@ -229,7 +314,10 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
             return (
               <div
                 key={idx}
-                onClick={() => setActiveFacility(facility)}
+                onClick={() => {
+                  setActiveFacility(facility);
+                  setMapCenter({ lat: facility.lat, lng: facility.lng });
+                }}
                 className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 backdrop-blur-md ${
                   isSelected 
                     ? 'bg-slate-900/80 border-cyan-400 shadow-lg shadow-cyan-950/40 ring-1 ring-cyan-400' 
@@ -247,7 +335,7 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
                     {facility.verifiedGovt && (
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 flex items-center gap-1">
                         <ShieldCheck className="w-3 h-3" />
-                        <span>CPCB Authorized</span>
+                        <span>CPCB / SPCB Authorized</span>
                       </span>
                     )}
                     {facility.brandAuthorized && (
@@ -312,4 +400,3 @@ export default function FacilityLocator({ initialFacilities }: FacilityLocatorPr
     </div>
   );
 }
-
