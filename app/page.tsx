@@ -10,9 +10,21 @@ import FacilityLocator from '@/components/FacilityLocator';
 import ImpactMetrics from '@/components/ImpactMetrics';
 import DeviceHistory from '@/components/DeviceHistory';
 import ApiKeyModal from '@/components/ApiKeyModal';
+import ProfileModal from '@/components/ProfileModal';
+import SecurityCenterModal from '@/components/SecurityCenterModal';
+import CertificateModal from '@/components/CertificateModal';
+import BottomNav, { AppTab } from '@/components/BottomNav';
 import SavingsBackground from '@/components/SavingsBackground';
 import VideoBackground from '@/components/VideoBackground';
-import { GadgetSpecs, ConditionSurvey, EvaluationResult, TriageRecord } from '@/types/circuscan';
+import { 
+  GadgetSpecs, 
+  ConditionSurvey, 
+  EvaluationResult, 
+  TriageRecord,
+  UserProfile,
+  DisposalCertificate,
+  EcoTier 
+} from '@/types/circuscan';
 import { computeResidualScore, computeResaleValue } from '@/lib/scoring';
 import { generateTradeInLinks, generateTradeInChannels, getBrandServiceCenterInfo } from '@/lib/tradein';
 import { getNearbyFacilitiesByPincode } from '@/lib/locations';
@@ -21,6 +33,32 @@ import { Recycle, Sparkles, ShieldCheck, Zap, ArrowLeft, RefreshCw } from 'lucid
 
 const STORAGE_KEY = 'circuscan_history_v1';
 const API_KEY_STORAGE = 'circuscan_gemini_key';
+const PROFILE_STORAGE_KEY = 'circuscan_user_profile_v1';
+
+const DEFAULT_PROFILE: UserProfile = {
+  name: 'Sabarish',
+  handle: '@sabarish_eco',
+  avatarSeed: 'S',
+  ecoCredits: 150,
+  ecoTier: 'Eco Explorer',
+  memberSince: '2026-09-01T00:00:00.000Z',
+  badges: [
+    {
+      id: 'early_pioneer',
+      label: 'Circular Pioneer',
+      icon: '🌱',
+      description: 'Joined the circular electronics movement to eliminate e-waste.',
+      unlockedAt: '2026-09-01T00:00:00.000Z'
+    },
+    {
+      id: 'safety_first',
+      label: 'NIST Safe Certified',
+      icon: '🛡️',
+      description: 'Equipped with cryptographic sanitization tools for clean disposal.',
+      unlockedAt: '2026-09-15T00:00:00.000Z'
+    }
+  ]
+};
 
 type StepType = 'scan' | 'diagnostic' | 'evaluation';
 
@@ -32,10 +70,16 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isSecurityOpen, setIsSecurityOpen] = useState(false);
+  const [isCertificateOpen, setIsCertificateOpen] = useState(false);
+  const [currentCertificate, setCurrentCertificate] = useState<DisposalCertificate | null>(null);
+  const [activeMobileTab, setActiveMobileTab] = useState<AppTab>('scan');
   const [apiKey, setApiKey] = useState<string>('');
   const [scanHistory, setScanHistory] = useState<TriageRecord[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile>(DEFAULT_PROFILE);
 
-  // Load history and API key from localStorage
+  // Load history, API key, and user profile from localStorage
   useEffect(() => {
     try {
       const rawHistory = localStorage.getItem(STORAGE_KEY);
@@ -46,10 +90,26 @@ export default function Home() {
       if (savedKey) {
         setApiKey(savedKey);
       }
+      const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
+      if (savedProfile) {
+        setUserProfile(JSON.parse(savedProfile));
+      }
     } catch (e) {
       console.error('Failed to load storage state:', e);
     }
   }, []);
+
+  const handleUpdateProfile = (updated: Partial<UserProfile>) => {
+    setUserProfile(prev => {
+      const next = { ...prev, ...updated };
+      try {
+        localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save profile:', e);
+      }
+      return next;
+    });
+  };
 
   const handleSaveApiKey = (newKey: string) => {
     setApiKey(newKey);
@@ -81,6 +141,72 @@ export default function Home() {
       }
       return updated;
     });
+
+    // Reward Eco-Credits (+50 per triage action) and recalculate tier
+    setUserProfile(prev => {
+      const newCredits = prev.ecoCredits + 50;
+      let newTier: EcoTier = prev.ecoTier;
+      if (newCredits >= 1500) newTier = 'Zero-Waste Master';
+      else if (newCredits >= 750) newTier = 'Circularity Champion';
+      else if (newCredits >= 250) newTier = 'Green Guardian';
+
+      const next = {
+        ...prev,
+        ecoCredits: newCredits,
+        ecoTier: newTier
+      };
+      try {
+        localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save updated credits:', e);
+      }
+      return next;
+    });
+  };
+
+  const handleGenerateCertificate = (sanitizationScore: number) => {
+    const targetGadget = currentSpecs || currentEvaluation?.gadget || {
+      brand: 'Certified',
+      model: 'Electronic Gadget',
+      category: 'smartphones'
+    };
+
+    const actionTaken = currentEvaluation?.primaryAction || 'Reuse';
+    const co2 = currentEvaluation?.environmentalImpact?.co2SavedKg || 38.4;
+    const diverted = currentEvaluation?.environmentalImpact?.eWasteDivertedKg || 0.22;
+
+    const cert: DisposalCertificate = {
+      certificateId: `CS-PASS-${new Date().getFullYear()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+      deviceBrand: targetGadget.brand,
+      deviceModel: targetGadget.model,
+      deviceCategory: targetGadget.category,
+      issueDate: new Date().toISOString(),
+      actionTaken: actionTaken,
+      sanitizationScore: Math.max(sanitizationScore, 60),
+      verificationHash: Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+      co2SavedKg: co2,
+      eWasteDivertedKg: diverted,
+      authorizedPartner: 'National Authorized E-Waste Circular Hub'
+    };
+
+    setCurrentCertificate(cert);
+    setIsSecurityOpen(false);
+    setIsCertificateOpen(true);
+  };
+
+  const handleSelectTab = (tab: AppTab) => {
+    setActiveMobileTab(tab);
+    if (tab === 'scan') {
+      setIsHistoryOpen(false);
+      setIsSecurityOpen(false);
+      setIsProfileOpen(false);
+    } else if (tab === 'vault') {
+      setIsHistoryOpen(true);
+    } else if (tab === 'security') {
+      setIsSecurityOpen(true);
+    } else if (tab === 'profile') {
+      setIsProfileOpen(true);
+    }
   };
 
   const calculateFullEvaluation = async (
@@ -204,12 +330,16 @@ export default function Home() {
         onReset={handleReset}
         hasApiKey={Boolean(apiKey)}
         onOpenKeyModal={() => setIsKeyModalOpen(true)}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenSecurity={() => setIsSecurityOpen(true)}
+        ecoCredits={userProfile.ecoCredits}
+        profileName={userProfile.name}
       />
 
       {/* ========================================================================= */}
       {/* 3. MAIN STEP CONTAINER                                                    */}
       {/* ========================================================================= */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 z-10">
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6 sm:py-8 pb-24 sm:pb-12 flex flex-col gap-6 sm:gap-8 z-10">
         
         {/* STEP 1: SCAN & UPLOAD FLOW */}
         {currentStep === 'scan' && (
@@ -320,6 +450,7 @@ export default function Home() {
               previewUrl={previewUrl || undefined}
               onOpenSurvey={() => setCurrentStep('diagnostic')}
               onReset={handleReset}
+              onOpenSecurity={() => setIsSecurityOpen(true)}
             />
 
             {/* 2. E-Waste Material & Toxic Profile */}
@@ -349,6 +480,38 @@ export default function Home() {
         onClose={() => setIsKeyModalOpen(false)}
         onSaveKey={handleSaveApiKey}
         currentKey={apiKey}
+      />
+
+      {/* Bottom Mobile App Navigation */}
+      <BottomNav
+        activeTab={activeMobileTab}
+        onSelectTab={handleSelectTab}
+        savedCount={scanHistory.length}
+        ecoCredits={userProfile.ecoCredits}
+      />
+
+      {/* User Profile & Eco Impact Modal */}
+      <ProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        profile={userProfile}
+        onUpdateProfile={handleUpdateProfile}
+        history={scanHistory}
+      />
+
+      {/* Security & Data Sanitization Center Modal */}
+      <SecurityCenterModal
+        isOpen={isSecurityOpen}
+        onClose={() => setIsSecurityOpen(false)}
+        activeGadget={currentSpecs || currentEvaluation?.gadget}
+        onGenerateCertificate={handleGenerateCertificate}
+      />
+
+      {/* Digital Green Disposal Certificate Modal */}
+      <CertificateModal
+        isOpen={isCertificateOpen}
+        onClose={() => setIsCertificateOpen(false)}
+        certificate={currentCertificate}
       />
       </div>
     </div>

@@ -25,13 +25,15 @@ interface EvaluationCardProps {
   previewUrl?: string;
   onOpenSurvey: () => void;
   onReset: () => void;
+  onOpenSecurity?: () => void;
 }
 
 export default function EvaluationCard({
   evaluation,
   previewUrl,
   onOpenSurvey,
-  onReset
+  onReset,
+  onOpenSecurity
 }: EvaluationCardProps) {
   const { 
     gadget, 
@@ -373,6 +375,36 @@ export default function EvaluationCard({
           ))}
         </div>
       </div>
+
+      {/* Security & Data Sanitization Action Banner */}
+      {onOpenSecurity && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-950/40 via-slate-900 to-slate-950 border border-blue-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-2xl bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-white">Pre-Disposal Data Sanitization Vault</h4>
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                  NIST 800-88
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Protect your identity before handover. Clear FRP/iCloud locks, run secure cryptographic erasure, and generate your verifiable <strong>Digital Green Certificate</strong>.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onOpenSecurity}
+            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-blue-950/50 shrink-0 active:scale-95"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Sanitize & Get Certificate</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

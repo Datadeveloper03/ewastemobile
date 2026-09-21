@@ -107,3 +107,45 @@ export interface TriageRecord {
   evaluation: EvaluationResult;
   survey: ConditionSurvey;
 }
+
+export type EcoTier = 'Eco Explorer' | 'Green Guardian' | 'Circularity Champion' | 'Zero-Waste Master';
+
+export interface UserProfile {
+  name: string;
+  handle: string;
+  avatarSeed: string;
+  ecoCredits: number;
+  ecoTier: EcoTier;
+  memberSince: string;
+  badges: Array<{
+    id: string;
+    label: string;
+    icon: string;
+    description: string;
+    unlockedAt?: string;
+  }>;
+}
+
+export interface SanitizationItem {
+  id: string;
+  title: string;
+  category: 'cloud' | 'storage' | 'hardware' | 'security';
+  description: string;
+  standard: string; // e.g. "NIST 800-88 Clear"
+  completed: boolean;
+}
+
+export interface DisposalCertificate {
+  certificateId: string;
+  deviceBrand: string;
+  deviceModel: string;
+  deviceCategory: string;
+  issueDate: string;
+  actionTaken: ActionRecommendation;
+  sanitizationScore: number;
+  verificationHash: string;
+  co2SavedKg: number;
+  eWasteDivertedKg: number;
+  authorizedPartner: string;
+}
+
